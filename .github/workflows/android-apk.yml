@@ -13,6 +13,8 @@ name: 'Build NEXUS RACING signed release APK (one ZIP in a GitHub Release)'
 #   with a clear message. The workflow never silently uses another Release.
 #
 # Design checks: every screen uses the blue / gold / purple card tones, the home screen has the LOOK button and the LOOK sliders update live.
+# Animation / UX checks (v1.7): ui/Motion.kt (motion tokens, AmbientView light behind every menu, ShineView on PLAY, Fonts.num), the Tektur number font
+# (assets/fonts/Tektur-Medium.ttf + licence), every screen built by the Navigator with the ambient layer, and the two extra colour presets (Neon Rose, Ice Cyan).
 # The Kotlin package folder is found automatically, so renaming the package id never breaks this workflow.
 # Multiplayer server address (optional): repository variable NEXUS_BACKEND_URL (wss://...). The backend is not touched by this workflow.
 # Another ZIP name (optional): repository variable BUNDLE_ZIP_NAME.
@@ -211,7 +213,7 @@ jobs:
           [ -f "$K/ui/HomeScreen.kt" ]      || { echo "::error::ui/HomeScreen.kt (neon home screen) is missing."; exit 1; }
           [ -f "$K/ui/NeonStyle.kt" ]       || { echo "::error::ui/NeonStyle.kt (neon card style) is missing."; exit 1; }
           [ -f "$K/ui/LookScreen.kt" ]      || { echo "::error::ui/LookScreen.kt (colour grading on the home screen) is missing."; exit 1; }
-          grep -q 'LookScreen' "$K/ui/HomeScreen.kt"           || { echo "::error::Screens1.kt has no LOOK button on the home screen."; exit 1; }
+          grep -q 'LookScreen' "$K/ui/HomeScreen.kt"           || { echo "::error::HomeScreen.kt has no LOOK button on the home screen."; exit 1; }
           grep -q 'enum class Tone' "$K/ui/NeonStyle.kt"        || { echo "::error::NeonStyle.kt has no Tone colour families (blue / gold / purple)."; exit 1; }
           grep -q 'class StreakDrawable' "$K/ui/NeonStyle.kt"   || { echo "::error::NeonStyle.kt has no StreakDrawable (light beams behind every screen)."; exit 1; }
           grep -q 'Tone.PURPLE' "$K/ui/HomeScreen.kt"           || { echo "::error::HomeScreen.kt: MULTIPLAYER must use the purple tone."; exit 1; }
@@ -231,6 +233,18 @@ jobs:
           grep -q 'openLyricsPicker' "$K/ui/MusicPicUi.kt"      || { echo "::error::MusicPicUi.kt has no lyrics-video import button."; exit 1; }
           grep -q 'REQ_LYR' "$K/MainActivity.kt"               || { echo "::error::MainActivity.kt does not forward the lyrics-video picker result."; exit 1; }
           grep -q 'LyricsLayer' "$K/GameActivity.kt"           || { echo "::error::GameActivity.kt does not use the lyrics layer."; exit 1; }
+          # ---- v1.7 animation / UX pass
+          [ -f "$K/ui/Motion.kt" ]          || { echo "::error::ui/Motion.kt (animation tokens, ambient light, shine, number font) is missing."; exit 1; }
+          grep -q 'object Motion' "$K/ui/Motion.kt"            || { echo "::error::Motion.kt has no 'object Motion' (animation tokens)."; exit 1; }
+          grep -q 'class AmbientView' "$K/ui/Motion.kt"        || { echo "::error::Motion.kt has no AmbientView (moving light behind the menu screens)."; exit 1; }
+          grep -q 'class ShineView' "$K/ui/Motion.kt"          || { echo "::error::Motion.kt has no ShineView (light sweep over PLAY)."; exit 1; }
+          grep -q 'object Fonts' "$K/ui/Motion.kt"             || { echo "::error::Motion.kt has no 'object Fonts' (number font)."; exit 1; }
+          grep -q 'fonts/Tektur-Medium.ttf' "$K/ui/Motion.kt"  || { echo "::error::Motion.kt does not load fonts/Tektur-Medium.ttf."; exit 1; }
+          grep -q 'AmbientView' "$K/ui/Navigator.kt"           || { echo "::error::Navigator.kt does not put the AmbientView behind every screen."; exit 1; }
+          grep -q 'ShineView' "$K/ui/HomeScreen.kt"            || { echo "::error::HomeScreen.kt has no ShineView on the PLAY button."; exit 1; }
+          grep -q 'Fonts.num' "$K/ui/Ui.kt"                    || { echo "::error::Ui.kt does not use the number font (Fonts.num)."; exit 1; }
+          grep -q 'Neon Rose' "$K/ui/Theme.kt"                 || { echo "::error::Theme.kt: the colour preset 'Neon Rose' is missing."; exit 1; }
+          grep -q 'Ice Cyan' "$K/ui/Theme.kt"                  || { echo "::error::Theme.kt: the colour preset 'Ice Cyan' is missing."; exit 1; }
           grep -q '"m4a"' "$PROJECT_DIR/app/build.gradle.kts"  || { echo "::error::app/build.gradle.kts: m4a / mp4 must be in noCompress (songs are read straight from the APK)."; exit 1; }
           echo "Project folder: $PROJECT_DIR"
           if [ -n "$NEXUS_BACKEND_URL" ]; then
@@ -284,6 +298,14 @@ jobs:
           if len(npc) < 10: err("config/npc_vehicles.json lists only %d NPC vehicles" % len(npc))
           for n in npc: glb(n["glb"], "npc " + n["id"])
           if not os.path.isfile(os.path.join(a, "fonts", "hud_slab.ttf")): err("Missing fonts/hud_slab.ttf (HUD font)")
+          # number font of the v1.7 design pass (used for wallet / level / result numbers; the game falls back to the HUD font if it is missing, so it is checked here)
+          tk = os.path.join(a, "fonts", "Tektur-Medium.ttf")
+          if not os.path.isfile(tk): err("Missing fonts/Tektur-Medium.ttf (number font of the new design)")
+          else:
+              hd = open(tk, "rb").read(4)
+              if hd not in (b"\x00\x01\x00\x00", b"true", b"OTTO"): err("fonts/Tektur-Medium.ttf is not a valid font file")
+              if os.path.getsize(tk) < 20000: err("fonts/Tektur-Medium.ttf is too small (broken file?)")
+          if not os.path.isfile(os.path.join(a, "fonts", "Tektur-OFL.txt")): err("Missing fonts/Tektur-OFL.txt (the font licence must ship with the font)")
           for s in ["crash.mp3", "nitro_loop.mp3", "bike_horn.mp3", "npc_car_horn.mp3"]:
               f = os.path.join(a, "audio", s)
               if not os.path.isfile(f): err("Missing audio/" + s); continue
@@ -349,7 +371,7 @@ jobs:
           lst = sorted({(b.get("model") or {}).get("glb") for b in bikes if (b.get("model") or {}).get("glb")}
                        | {r["glb"] for r in json.load(open(a + "/config/riders.json"))} | {n["glb"] for n in npc}
                        | {"ui/bike_%s.png" % b["id"] for b in bikes}
-                       | {"fonts/hud_slab.ttf", "audio/crash.mp3", "audio/nitro_loop.mp3", "audio/bike_horn.mp3", "audio/npc_car_horn.mp3",
+                       | {"fonts/hud_slab.ttf", "fonts/Tektur-Medium.ttf", "fonts/Tektur-OFL.txt", "audio/crash.mp3", "audio/nitro_loop.mp3", "audio/bike_horn.mp3", "audio/npc_car_horn.mp3",
                           "config/bikes.json", "config/npc_vehicles.json", "config/countryside_map.json", "config/nightcity_map.json",
                           cm6["map"]["preview"], cm7["map"]["preview"]}
                        | {"audio/engine/%s.wav" % e for e in ["h2r_loop", "h2r_release", "h2r_idle", "h2r_shift"]}
@@ -600,11 +622,11 @@ jobs:
           [ "$MISS" = 0 ] || exit 1
           # all dex files into one file first (grep -q on a pipe can close it early and fail with pipefail)
           unzip -p "$APK" 'classes*.dex' > dex-all.bin
-          for C in NightCityCard CountrysideCard LyricsLayer GradeCode StreakDrawable GradeKit; do
+          for C in NightCityCard CountrysideCard LyricsLayer GradeCode StreakDrawable GradeKit AmbientView ShineView; do
             grep -aq "$C" dex-all.bin || { echo "::error::The APK code does not contain $C."; exit 1; }
           done
           rm -f dex-all.bin
-          echo "APK contains all ${#LIST[@]} checked assets (bikes, riders, NPC vehicles, sounds, ${COUNTRY_MODELS} NEXUS COUNTRYSIDE models, ${NIGHT_MODELS} NEXUS NIGHT CITY models), both map cards, the 5 built-in songs with lyric videos, the lyrics layer and colour grading."
+          echo "APK contains all ${#LIST[@]} checked assets (bikes, riders, NPC vehicles, sounds, ${COUNTRY_MODELS} NEXUS COUNTRYSIDE models, ${NIGHT_MODELS} NEXUS NIGHT CITY models), both map cards, the 5 built-in songs with lyric videos, the lyrics layer, colour grading and the new animation layer (ambient light, PLAY shine, number font)."
           FINAL="$GITHUB_WORKSPACE/NEXUS_RACING-${NEXUS_VERSION_NAME}-code${NEXUS_VERSION_CODE}-release.apk"
           cp "$APK" "$FINAL"
           echo "FINAL_APK=$FINAL" >> "$GITHUB_ENV"
