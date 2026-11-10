@@ -524,7 +524,7 @@ jobs:
           el = [e for e in m.get("elements", []) if e.get("type") == "SINGLE"]
           if len(el) != 1:
               print("::error::Expected exactly one APK in output-metadata.json, found %d" % len(el)); sys.exit(1)
-          apk = os.path.join(out, el[0]["outputFile"])
+          apk = os.path.abspath(os.path.join(out, el[0]["outputFile"]))
           if not os.path.isfile(apk):
               print("::error::" + apk + " is listed but missing"); sys.exit(1)
           if "unsigned" in os.path.basename(apk):
@@ -533,14 +533,17 @@ jobs:
           print("applicationId (Gradle): " + str(m.get("applicationId")))
           print("versionCode (Gradle)  : " + str(el[0].get("versionCode")))
           print("versionName (Gradle)  : " + str(el[0].get("versionName")))
+          print("APK file    : " + apk + "  (" + str(os.path.getsize(apk)) + " bytes)")
           open(os.environ["GITHUB_ENV"], "a").write("APK_PATH=%s\nGRADLE_APP_ID=%s\n" % (apk, m.get("applicationId")))
           PY
-          ls -l "$APK_PATH" 2>/dev/null || true
+          # NOTE: values written to $GITHUB_ENV are visible only in the NEXT steps, so nothing reads APK_PATH here.
 
       - name: Verify signature, package name, version and debuggable flag
         shell: bash
         run: |
           set -euo pipefail
+          : "${APK_PATH:?The APK path was not passed from the previous step}"
+          [ -f "$APK_PATH" ] || { echo "::error::APK file not found: $APK_PATH"; exit 1; }
           BT="$ANDROID_HOME/build-tools/$BUILD_TOOLS"
           [ -x "$BT/apksigner" ] && [ -x "$BT/aapt2" ] || { echo "::error::apksigner / aapt2 not found in $BT"; exit 1; }
           APK="$APK_PATH"
@@ -563,9 +566,9 @@ jobs:
           "$BT/aapt2" dump badging "$APK" > badging.txt
           PKG_LINE=$(grep -m1 '^package:' badging.txt)
           echo "$PKG_LINE"
-          GOT_ID=$(echo "$PKG_LINE" | sed "s/.*name='\([^']*\)'.*/\1/")
-          GOT_CODE=$(echo "$PKG_LINE" | sed "s/.*versionCode='\([^']*\)'.*/\1/")
-          GOT_NAME=$(echo "$PKG_LINE" | sed "s/.*versionName='\([^']*\)'.*/\1/")
+          GOT_ID=$(echo "$PKG_LINE" | sed -E "s/^package: name='([^']*)'.*/\1/")
+          GOT_CODE=$(echo "$PKG_LINE" | sed -E "s/.* versionCode='([^']*)'.*/\1/")
+          GOT_NAME=$(echo "$PKG_LINE" | sed -E "s/.* versionName='([^']*)'.*/\1/")
           [ "$GOT_ID" = "$WANT_ID" ]   || { echo "::error::Package name in the APK is $GOT_ID but app/build.gradle.kts says $WANT_ID."; exit 1; }
           [ "$GOT_CODE" = "$NEXUS_VERSION_CODE" ] || { echo "::error::versionCode in the APK is $GOT_CODE but $NEXUS_VERSION_CODE was requested."; exit 1; }
           [ "$GOT_NAME" = "$NEXUS_VERSION_NAME" ] || { echo "::error::versionName in the APK is $GOT_NAME but $NEXUS_VERSION_NAME was requested."; exit 1; }
@@ -574,17 +577,21 @@ jobs:
           grep -E '^(sdkVersion|targetSdkVersion|uses-permission)' badging.txt || true
 
           echo "== no key files inside the APK =="
-          if unzip -l "$APK" | awk '{print $4}' | grep -Eiq '\.(jks|keystore|p12|pfx|pem)$'; then echo "::error::The APK contains a key file."; exit 1; fi
+          if unzip -Z1 "$APK" | grep -Eiq '\.(jks|keystore|p12|pfx|pem)$'; then echo "::error::The APK contains a key file."; exit 1; fi
           echo "OK  no key files in the APK"
           echo "APK_FP=$APK_FP" >> "$GITHUB_ENV"
           echo "APK_PACKAGE=$GOT_ID" >> "$GITHUB_ENV"
 
       - name: Verify the APK contains the assets and the game code
         shell: bash
+        env:
+          UNIT_TESTS_OUTCOME: ${{ steps.unit_tests.outcome }}
         run: |
           set -euo pipefail
+          : "${APK_PATH:?The APK path was not passed from the previous step}"
+          [ -f "$APK_PATH" ] || { echo "::error::APK file not found: $APK_PATH"; exit 1; }
           APK="$APK_PATH"
-          unzip -l "$APK" | awk '{print $4}' > apk-files.txt
+          unzip -Z1 "$APK" > apk-files.txt
           IFS=',' read -ra LIST <<< "$APK_ASSETS"
           MISS=0
           for A in "${LIST[@]}"; do
@@ -613,7 +620,7 @@ jobs:
             echo "| versionName | \`${NEXUS_VERSION_NAME}\` |"
             echo "| Signing key SHA-256 | \`${APK_FP}\` |"
             echo "| APK SHA-256 | \`${SUM}\` |"
-            echo "| Unit tests | ${{ steps.unit_tests.outcome }} |"
+            echo "| Unit tests | ${UNIT_TESTS_OUTCOME:-not run} |"
             echo ""
             echo "Download: scroll to **Artifacts** at the bottom of this page and tap **NEXUS_RACING-release-apk**."
           } >> "$GITHUB_STEP_SUMMARY"
@@ -661,3 +668,4 @@ jobs:
           path: ${{ env.FINAL_APK }}
           if-no-files-found: error
           retention-days: 30
+
