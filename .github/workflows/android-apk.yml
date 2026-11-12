@@ -3,34 +3,39 @@ name: 'Build NEXUS RACING signed release APK (one ZIP in a GitHub Release)'
 # ======================================================================================================================
 # HOW THIS WORKS (nothing has to be edited inside this file)
 #
-#   1. In your repository create a GitHub Release with an EXACT tag (for example nexus-h2r-v1)
-#      and attach ONE file to it:  NEXUS_RACING-FINAL.zip  (or NEXUS_RACING_FIXED_SOURCE.zip, both names are accepted)
+# 1. In your repository create a GitHub Release with an EXACT tag (for example nexus-h2r-v1)
+#    and attach ONE file to it:  NEXUS_RACING-FINAL.zip  (or NEXUS_RACING_FIXED_SOURCE.zip, both names are accepted)
 #
-#   2. Actions tab -> "Build NEXUS RACING Android APK ..." -> Run workflow -> type that exact tag
-#      (publishing the Release also starts the build, with that Release's own tag).
+# 2. Actions tab -> "Build NEXUS RACING signed release APK ..." -> Run workflow -> type that exact tag
+#    (publishing the Release also starts the build, with that Release's own tag).
 #
-#   There is NO fallback: an empty tag, the old tag "v.10", "latest", a tag that does not exist or a ZIP that is incomplete FAILS the run
-#   with a clear message. The workflow never silently uses another Release.
+# There is NO fallback: an empty tag, the old tag "v.10", "latest", a tag that does not exist or a ZIP that is incomplete FAILS the run
+# with a clear message. The workflow never silently uses another Release.
 #
 # Design checks: every screen uses the blue / gold / purple card tones, the home screen has the LOOK button and the LOOK sliders update live.
-# Animation / UX checks (v1.7): ui/Motion.kt (motion tokens, AmbientView light behind every menu, ShineView on PLAY, Fonts.num), the Tektur number font
-# (assets/fonts/Tektur-Medium.ttf + licence), every screen built by the Navigator with the ambient layer, and the two extra colour presets (Neon Rose, Ice Cyan).
+# Animation / UX checks (v1.7): ui/Motion.kt (motion tokens, AmbientView, ShineView on PLAY, Fonts.num), the Tektur number font,
+# every screen built by the Navigator with the ambient layer, and the two extra colour presets (Neon Rose, Ice Cyan).
+# STUNT / RAMP checks (v1.7 game update): gameplay/Stunt.kt (8 stunts + air control), gameplay/Ramps.kt, graphics/Rebase.kt (floating origin),
+# the STUNT button + radial selector + air pad in GameView, the two ramp GLBs (assets/map/ramps/), the stunt-ramps setting, the multiplayer
+# stunt state / unlimited ride. A ZIP that lacks any of them FAILS the run instead of building a game without the new features.
+#
 # The Kotlin package folder is found automatically, so renaming the package id never breaks this workflow.
 # Multiplayer server address (optional): repository variable NEXUS_BACKEND_URL (wss://...). The backend is not touched by this workflow.
+# (The v1.7 game needs the v1.7 backend: upload NEXUS_RACING-Backend-v1.7-STUNT.zip with the backend workflow first.)
 # Another ZIP name (optional): repository variable BUNDLE_ZIP_NAME.
 #
-# SIGNED RELEASE BUILD (new): the APK is now a RELEASE build signed with ONE permanent key, so every new APK installs over the old one.
-#   Required repository SECRETS (Settings > Secrets and variables > Actions > Secrets): see SIGNING_SETUP_GUIDE.md
-#     NEXUS_KEYSTORE_BASE64    the keystore file, Base64 encoded (one single line of text)
-#     NEXUS_KEYSTORE_PASSWORD  keystore password
-#     NEXUS_KEY_ALIAS          key alias
-#     NEXUS_KEY_PASSWORD       key password
-#   Optional repository VARIABLES (Settings > Secrets and variables > Actions > Variables):
-#     NEXUS_EXPECTED_CERT_SHA256  the public SHA-256 fingerprint of your key (printed by the first successful run): once set, a build signed
-#                                 with any OTHER key is refused. Recommended after the first run.
-#     NEXUS_VERSION_NAME          the version name shown to players (default 1.4.0)
-#   versionCode = minutes since 1970 at build time: it grows with every run automatically (never reuses a number, no counter to maintain).
-#   If a secret is missing the run STOPS at the start with a clear message; no unsigned APK is ever uploaded.
+# SIGNED RELEASE BUILD: the APK is a RELEASE build signed with ONE permanent key, so every new APK installs over the old one.
+# Required repository SECRETS (Settings > Secrets and variables > Actions > Secrets): see SIGNING_SETUP_GUIDE.md
+#   NEXUS_KEYSTORE_BASE64    the keystore file, Base64 encoded (one single line of text)
+#   NEXUS_KEYSTORE_PASSWORD  keystore password
+#   NEXUS_KEY_ALIAS          key alias
+#   NEXUS_KEY_PASSWORD       key password
+# Optional repository VARIABLES (Settings > Secrets and variables > Actions > Variables):
+#   NEXUS_EXPECTED_CERT_SHA256  the public SHA-256 fingerprint of your key (printed by the first successful run)
+#   NEXUS_VERSION_NAME          the version name shown to players (default 1.4.0)
+# versionCode = minutes since 1970 at build time: it grows with every run automatically.
+# If a secret is missing the run STOPS at the start with a clear message; no unsigned APK is ever uploaded.
+# ======================================================================================================================
 
 on:
   workflow_dispatch:
@@ -68,8 +73,7 @@ jobs:
 
     steps:
 
-      # ---------------------------------------------------------------- 1. the Release tag must be explicit and valid
-
+      # ------------------------------------------------------------ 1. the Release tag must be explicit and valid
       - name: Check the Release tag
         shell: bash
         run: |
@@ -91,8 +95,7 @@ jobs:
           echo "Release tag : $TAG"
           echo "ZIP         : $BUNDLE_ZIP_NAME"
 
-      # ---------------------------------------------------------------- 1b. the permanent signing secrets must exist (fail fast, nothing is printed)
-
+      # ------------------------------------------------------------ 1b. the permanent signing secrets must exist
       - name: Check that the signing secrets exist
         shell: bash
         env:
@@ -108,7 +111,7 @@ jobs:
           [ -n "${S_ALIAS:-}" ] || { echo "::error::Missing repository secret NEXUS_KEY_ALIAS."; MISSING=1; }
           [ -n "${S_KEYP:-}" ]  || { echo "::error::Missing repository secret NEXUS_KEY_PASSWORD."; MISSING=1; }
           if [ "$MISSING" = 1 ]; then
-            echo "::error::The release APK can only be built with your permanent signing key. Create the four secrets (see SIGNING_SETUP_GUIDE.md: Settings > Secrets and variables > Actions > New repository secret) and run again. No APK was built."
+            echo "::error::The release APK can only be built with your permanent signing key. Create the four secrets (see SIGNING_SETUP_GUIDE.md) and run again. No APK was built."
             exit 1
           fi
           echo "All 4 signing secrets are present (values are never printed)."
@@ -117,7 +120,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # minutes since 1970-01-01 (UTC): always larger than the run before, independent of run numbers, renamed workflows or re-created repos
           CODE=$(( $(date -u +%s) / 60 ))
           NAME="${VERSION_NAME_INPUT:-}"
           [ -n "$NAME" ] || NAME="${VERSION_NAME_VAR:-}"
@@ -130,8 +132,7 @@ jobs:
           echo "versionCode : $CODE  (grows every run)"
           echo "versionName : $NAME"
 
-      # ---------------------------------------------------------------- 2. download exactly that Release's bundle
-
+      # ------------------------------------------------------------ 2. download exactly that Release's bundle
       - name: Download the ZIP from the Release
         shell: bash
         env:
@@ -143,7 +144,6 @@ jobs:
             echo "::error::Release '$RELEASE_TAG' does not exist in $GITHUB_REPOSITORY (or it is still a draft). Create and publish it first."
             exit 1
           fi
-          # the ZIP may be attached under either of two names: $BUNDLE_ZIP_NAME or NEXUS_RACING_FIXED_SOURCE.zip
           if ! gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --pattern "$BUNDLE_ZIP_NAME" --pattern "$ALT_ZIP_NAME" --dir bundle_dl --clobber; then
             echo "::error::Release '$RELEASE_TAG' has no asset named $BUNDLE_ZIP_NAME (or $ALT_ZIP_NAME). Attach the ZIP to that Release."
             echo "Assets that the Release does have:"
@@ -151,16 +151,16 @@ jobs:
             exit 1
           fi
           if [ -f "bundle_dl/$BUNDLE_ZIP_NAME" ]; then B="bundle_dl/$BUNDLE_ZIP_NAME"; else B="bundle_dl/$ALT_ZIP_NAME"; fi
-          BUNDLE_ZIP_NAME="$(basename "$B")"
+          ZIPNAME="$(basename "$B")"
           SIZE=$(stat -c %s "$B")
-          echo "Download URL : https://github.com/$GITHUB_REPOSITORY/releases/download/$RELEASE_TAG/$BUNDLE_ZIP_NAME"
+          echo "Download URL : https://github.com/$GITHUB_REPOSITORY/releases/download/$RELEASE_TAG/$ZIPNAME"
           echo "Size         : $SIZE bytes"
-          if [ "$SIZE" -lt 1000000 ]; then echo "::error::$BUNDLE_ZIP_NAME is only $SIZE bytes: that is not the complete project ZIP."; exit 1; fi
-          unzip -tq "$B" > /dev/null || { echo "::error::$BUNDLE_ZIP_NAME is not a valid ZIP (broken upload?)."; exit 1; }
+          if [ "$SIZE" -lt 1000000 ]; then echo "::error::$ZIPNAME is only $SIZE bytes: that is not the complete project ZIP."; exit 1; fi
+          unzip -tq "$B" > /dev/null || { echo "::error::$ZIPNAME is not a valid ZIP (broken upload?)."; exit 1; }
           echo "BUNDLE_PATH=$GITHUB_WORKSPACE/$B" >> "$GITHUB_ENV"
+          echo "BUNDLE_ZIP_USED=$ZIPNAME" >> "$GITHUB_ENV"
 
-      # ---------------------------------------------------------------- 3. extract the one ZIP (code + all assets + both maps are already inside)
-
+      # ------------------------------------------------------------ 3. extract the one ZIP
       - name: Extract the project ZIP
         shell: bash
         run: |
@@ -172,16 +172,17 @@ jobs:
             if [ -f "$dp/settings.gradle.kts" ]; then ROOT="$dp"; break; fi
           done
           if [ -z "$ROOT" ]; then
-            echo "::error::$BUNDLE_ZIP_NAME has no settings.gradle.kts: this is not the complete NEXUS RACING project ZIP."
+            echo "::error::${BUNDLE_ZIP_USED:-the ZIP} has no settings.gradle.kts: this is not the complete NEXUS RACING project ZIP."
             exit 1
           fi
           A="$ROOT/app/src/main/assets"
-          for d in "$A/map/countryside" "$A/map/nightcity" "$A/npc" "$A/models" "$A/config"; do
+          for d in "$A/map/countryside" "$A/map/nightcity" "$A/map/ramps" "$A/npc" "$A/models" "$A/config"; do
             [ -d "$d" ] || { echo "::error::Missing folder inside the ZIP: ${d#$ROOT/}"; exit 1; }
           done
           echo "Android project root: $ROOT"
           echo "PROJECT_DIR=$ROOT" >> "$GITHUB_ENV"
 
+      # ------------------------------------------------------------ 4. code checks
       - name: Check the Android project files and the map registration in the code
         shell: bash
         run: |
@@ -197,69 +198,93 @@ jobs:
           grep -q 'const val NIGHTCITY = 7' "$K/data/Config.kt" || { echo "::error::Config.kt: NEXUS NIGHT CITY (NIGHTCITY = 7) is not registered."; exit 1; }
           grep -q '"NEXUS NIGHT CITY"' "$K/data/Config.kt"      || { echo "::error::Config.kt: the NEXUS NIGHT CITY map entry is missing."; exit 1; }
           [ -f "$K/graphics/NightCity.kt" ] || { echo "::error::graphics/NightCity.kt is missing."; exit 1; }
-          [ -f "$K/ui/NightCityCard.kt" ]   || { echo "::error::ui/NightCityCard.kt (map card with the NEW MAP badge) is missing."; exit 1; }
+          [ -f "$K/ui/NightCityCard.kt" ]   || { echo "::error::ui/NightCityCard.kt is missing."; exit 1; }
           [ -f "$K/ui/CountrysideCard.kt" ] || { echo "::error::ui/CountrysideCard.kt is missing (Countryside must be kept)."; exit 1; }
           grep -q 'NightCityCard' "$K/ui/MapChooser.kt"         || { echo "::error::MapChooser.kt does not use NightCityCard."; exit 1; }
           grep -q 'NightCity.preload' "$K/GameActivity.kt"      || { echo "::error::GameActivity.kt does not preload the Night City models."; exit 1; }
           grep -q 'env.kind == 7' "$K/graphics/SceneDrawer.kt"  || { echo "::error::SceneDrawer.kt has no scenery for map kind 7."; exit 1; }
           grep -q 'itemCountry' "$K/graphics/SceneDrawer.kt"    || { echo "::error::SceneDrawer.kt lost the Countryside scenery."; exit 1; }
-          [ -f "$K/ui/LyricsView.kt" ]      || { echo "::error::ui/LyricsView.kt (lyrics over the game) is missing."; exit 1; }
-          [ -f "$K/ui/GradeUi.kt" ]         || { echo "::error::ui/GradeUi.kt (colour grading panel) is missing."; exit 1; }
-          [ -f "$K/graphics/GradeKit.kt" ]  || { echo "::error::graphics/GradeKit.kt (colour grading shader) is missing."; exit 1; }
+          [ -f "$K/ui/LyricsView.kt" ]      || { echo "::error::ui/LyricsView.kt is missing."; exit 1; }
+          [ -f "$K/ui/GradeUi.kt" ]         || { echo "::error::ui/GradeUi.kt is missing."; exit 1; }
+          [ -f "$K/graphics/GradeKit.kt" ]  || { echo "::error::graphics/GradeKit.kt is missing."; exit 1; }
           [ -f "$K/graphics/Grade.kt" ]     || { echo "::error::graphics/Grade.kt is missing."; exit 1; }
-          [ -f "$K/graphics/GradeCode.kt" ] || { echo "::error::graphics/GradeCode.kt (look codes) is missing."; exit 1; }
-          grep -q 'askCode' "$K/ui/GradeUi.kt"                || { echo "::error::GradeUi.kt has no 'enter a look code' option."; exit 1; }
+          [ -f "$K/graphics/GradeCode.kt" ] || { echo "::error::graphics/GradeCode.kt is missing."; exit 1; }
+          grep -q 'askCode' "$K/ui/GradeUi.kt"                 || { echo "::error::GradeUi.kt has no 'enter a look code' option."; exit 1; }
           grep -q 'grade?.apply' "$K/graphics/RaceRenderer.kt" || { echo "::error::RaceRenderer.kt does not apply the colour grading pass."; exit 1; }
-          [ -f "$K/ui/HomeScreen.kt" ]      || { echo "::error::ui/HomeScreen.kt (neon home screen) is missing."; exit 1; }
-          [ -f "$K/ui/NeonStyle.kt" ]       || { echo "::error::ui/NeonStyle.kt (neon card style) is missing."; exit 1; }
-          [ -f "$K/ui/LookScreen.kt" ]      || { echo "::error::ui/LookScreen.kt (colour grading on the home screen) is missing."; exit 1; }
-          grep -q 'LookScreen' "$K/ui/HomeScreen.kt"           || { echo "::error::HomeScreen.kt has no LOOK button on the home screen."; exit 1; }
-          grep -q 'enum class Tone' "$K/ui/NeonStyle.kt"        || { echo "::error::NeonStyle.kt has no Tone colour families (blue / gold / purple)."; exit 1; }
-          grep -q 'class StreakDrawable' "$K/ui/NeonStyle.kt"   || { echo "::error::NeonStyle.kt has no StreakDrawable (light beams behind every screen)."; exit 1; }
+          [ -f "$K/ui/HomeScreen.kt" ]      || { echo "::error::ui/HomeScreen.kt is missing."; exit 1; }
+          [ -f "$K/ui/NeonStyle.kt" ]       || { echo "::error::ui/NeonStyle.kt is missing."; exit 1; }
+          [ -f "$K/ui/LookScreen.kt" ]      || { echo "::error::ui/LookScreen.kt is missing."; exit 1; }
+          grep -q 'LookScreen' "$K/ui/HomeScreen.kt"           || { echo "::error::HomeScreen.kt has no LOOK button."; exit 1; }
+          grep -q 'enum class Tone' "$K/ui/NeonStyle.kt"        || { echo "::error::NeonStyle.kt has no Tone colour families."; exit 1; }
+          grep -q 'class StreakDrawable' "$K/ui/NeonStyle.kt"   || { echo "::error::NeonStyle.kt has no StreakDrawable."; exit 1; }
           grep -q 'Tone.PURPLE' "$K/ui/HomeScreen.kt"           || { echo "::error::HomeScreen.kt: MULTIPLAYER must use the purple tone."; exit 1; }
           grep -q 'Tone.GOLD' "$K/ui/HomeScreen.kt"             || { echo "::error::HomeScreen.kt: GARAGE and DAILY REWARDS must use the gold tone."; exit 1; }
-          grep -q 'lookBtn' "$K/ui/HomeScreen.kt"               || { echo "::error::HomeScreen.kt has no LOOK (colour grading) button."; exit 1; }
-          [ "$(grep -c 'previewMatrix(Grade.live)' "$K/ui/LookScreen.kt")" -ge 2 ] || { echo "::error::LookScreen.kt: the sliders do not update the preview picture live."; exit 1; }
-          grep -q 'onChange' "$K/ui/GradeUi.kt"                 || { echo "::error::GradeUi.kt has no live onChange callback for the sliders."; exit 1; }
-          grep -q 'class BikeSilhouetteDrawable' "$K/ui/NeonStyle.kt" || { echo "::error::NeonStyle.kt has no BikeSilhouetteDrawable (bike outline in the GARAGE card)."; exit 1; }
-          grep -q 'BikeSilhouetteDrawable' "$K/ui/HomeScreen.kt"      || { echo "::error::HomeScreen.kt does not draw the bike outline in the GARAGE card."; exit 1; }
-          grep -q 'private val skew' "$K/ui/NeonStyle.kt"             || { echo "::error::NeonStyle.kt: GlassDrawable has no slanted (skew) shape for PLAY and the main buttons."; exit 1; }
-          grep -q 'private val glint' "$K/ui/NeonStyle.kt"            || { echo "::error::NeonStyle.kt: GlassDrawable has no corner light (slash / glint)."; exit 1; }
-          grep -q 'android:alertDialogTheme' "$PROJECT_DIR/app/src/main/res/values/styles.xml" || { echo "::error::styles.xml has no dark dialog theme (alertDialogTheme)."; exit 1; }
-          [ -f "$PROJECT_DIR/app/src/main/res/drawable/dialog_bg.xml" ] || { echo "::error::res/drawable/dialog_bg.xml (dialog panel) is missing."; exit 1; }
-          grep -q 'addView(view, 1,' "$K/ui/LyricsView.kt"     || { echo "::error::LyricsView must sit BELOW the HUD (index 1), otherwise it hides the buttons."; exit 1; }
-          [ -f "$K/audio/SampleBank.kt" ]   || { echo "::error::audio/SampleBank.kt (real H2R engine sound) is missing."; exit 1; }
+          grep -q 'lookBtn' "$K/ui/HomeScreen.kt"               || { echo "::error::HomeScreen.kt has no LOOK button."; exit 1; }
+          [ "$(grep -c 'previewMatrix(Grade.live)' "$K/ui/LookScreen.kt")" -ge 2 ] || { echo "::error::LookScreen.kt: the sliders do not update the preview live."; exit 1; }
+          grep -q 'onChange' "$K/ui/GradeUi.kt"                 || { echo "::error::GradeUi.kt has no live onChange callback."; exit 1; }
+          grep -q 'class BikeSilhouetteDrawable' "$K/ui/NeonStyle.kt" || { echo "::error::NeonStyle.kt has no BikeSilhouetteDrawable."; exit 1; }
+          grep -q 'BikeSilhouetteDrawable' "$K/ui/HomeScreen.kt"      || { echo "::error::HomeScreen.kt does not draw the bike outline."; exit 1; }
+          grep -q 'private val skew' "$K/ui/NeonStyle.kt"             || { echo "::error::NeonStyle.kt: GlassDrawable has no skew shape."; exit 1; }
+          grep -q 'private val glint' "$K/ui/NeonStyle.kt"            || { echo "::error::NeonStyle.kt: GlassDrawable has no glint."; exit 1; }
+          grep -q 'android:alertDialogTheme' "$PROJECT_DIR/app/src/main/res/values/styles.xml" || { echo "::error::styles.xml has no dark dialog theme."; exit 1; }
+          [ -f "$PROJECT_DIR/app/src/main/res/drawable/dialog_bg.xml" ] || { echo "::error::res/drawable/dialog_bg.xml is missing."; exit 1; }
+          grep -q 'addView(view, 1,' "$K/ui/LyricsView.kt"     || { echo "::error::LyricsView must sit BELOW the HUD (index 1)."; exit 1; }
+          [ -f "$K/audio/SampleBank.kt" ]   || { echo "::error::audio/SampleBank.kt is missing."; exit 1; }
           grep -q 'useSamples' "$K/GameActivity.kt"            || { echo "::error::GameActivity.kt does not switch the H2R to the recorded engine."; exit 1; }
           grep -q 'openLyricsPicker' "$K/ui/MusicPicUi.kt"      || { echo "::error::MusicPicUi.kt has no lyrics-video import button."; exit 1; }
           grep -q 'REQ_LYR' "$K/MainActivity.kt"               || { echo "::error::MainActivity.kt does not forward the lyrics-video picker result."; exit 1; }
           grep -q 'LyricsLayer' "$K/GameActivity.kt"           || { echo "::error::GameActivity.kt does not use the lyrics layer."; exit 1; }
           # ---- v1.7 animation / UX pass
-          [ -f "$K/ui/Motion.kt" ]          || { echo "::error::ui/Motion.kt (animation tokens, ambient light, shine, number font) is missing."; exit 1; }
-          grep -q 'object Motion' "$K/ui/Motion.kt"            || { echo "::error::Motion.kt has no 'object Motion' (animation tokens)."; exit 1; }
-          grep -q 'class AmbientView' "$K/ui/Motion.kt"        || { echo "::error::Motion.kt has no AmbientView (moving light behind the menu screens)."; exit 1; }
-          grep -q 'class ShineView' "$K/ui/Motion.kt"          || { echo "::error::Motion.kt has no ShineView (light sweep over PLAY)."; exit 1; }
-          grep -q 'object Fonts' "$K/ui/Motion.kt"             || { echo "::error::Motion.kt has no 'object Fonts' (number font)."; exit 1; }
+          [ -f "$K/ui/Motion.kt" ]          || { echo "::error::ui/Motion.kt is missing."; exit 1; }
+          grep -q 'object Motion' "$K/ui/Motion.kt"            || { echo "::error::Motion.kt has no 'object Motion'."; exit 1; }
+          grep -q 'class AmbientView' "$K/ui/Motion.kt"        || { echo "::error::Motion.kt has no AmbientView."; exit 1; }
+          grep -q 'class ShineView' "$K/ui/Motion.kt"          || { echo "::error::Motion.kt has no ShineView."; exit 1; }
+          grep -q 'object Fonts' "$K/ui/Motion.kt"             || { echo "::error::Motion.kt has no 'object Fonts'."; exit 1; }
           grep -q 'fonts/Tektur-Medium.ttf' "$K/ui/Motion.kt"  || { echo "::error::Motion.kt does not load fonts/Tektur-Medium.ttf."; exit 1; }
           grep -q 'AmbientView' "$K/ui/Navigator.kt"           || { echo "::error::Navigator.kt does not put the AmbientView behind every screen."; exit 1; }
-          grep -q 'ShineView' "$K/ui/HomeScreen.kt"            || { echo "::error::HomeScreen.kt has no ShineView on the PLAY button."; exit 1; }
+          grep -q 'ShineView' "$K/ui/HomeScreen.kt"            || { echo "::error::HomeScreen.kt has no ShineView on PLAY."; exit 1; }
           grep -q 'Fonts.num' "$K/ui/Ui.kt"                    || { echo "::error::Ui.kt does not use the number font (Fonts.num)."; exit 1; }
-          grep -q 'Neon Rose' "$K/ui/Theme.kt"                 || { echo "::error::Theme.kt: the colour preset 'Neon Rose' is missing."; exit 1; }
-          grep -q 'Ice Cyan' "$K/ui/Theme.kt"                  || { echo "::error::Theme.kt: the colour preset 'Ice Cyan' is missing."; exit 1; }
-          grep -q '"m4a"' "$PROJECT_DIR/app/build.gradle.kts"  || { echo "::error::app/build.gradle.kts: m4a / mp4 must be in noCompress (songs are read straight from the APK)."; exit 1; }
+          grep -q 'Neon Rose' "$K/ui/Theme.kt"                 || { echo "::error::Theme.kt: preset 'Neon Rose' is missing."; exit 1; }
+          grep -q 'Ice Cyan' "$K/ui/Theme.kt"                  || { echo "::error::Theme.kt: preset 'Ice Cyan' is missing."; exit 1; }
+          grep -q '"m4a"' "$PROJECT_DIR/app/build.gradle.kts"  || { echo "::error::app/build.gradle.kts: m4a / mp4 must be in noCompress."; exit 1; }
+          # ---- v1.7 STUNT / RAMP / MULTIPLAYER update
+          [ -f "$K/gameplay/Stunt.kt" ]     || { echo "::error::gameplay/Stunt.kt is missing."; exit 1; }
+          [ -f "$K/gameplay/Ramps.kt" ]     || { echo "::error::gameplay/Ramps.kt is missing."; exit 1; }
+          [ -f "$K/graphics/Rebase.kt" ]    || { echo "::error::graphics/Rebase.kt is missing."; exit 1; }
+          grep -q 'class StuntState' "$K/gameplay/Stunt.kt"    || { echo "::error::Stunt.kt has no StuntState."; exit 1; }
+          grep -q 'class RampField' "$K/gameplay/Ramps.kt"     || { echo "::error::Ramps.kt has no RampField."; exit 1; }
+          grep -q 'val stunt = StuntState' "$K/gameplay/RaceSim.kt" || { echo "::error::RaceSim.kt does not own the stunt system."; exit 1; }
+          grep -q 'stunt.pre(' "$K/gameplay/RaceSim.kt"        || { echo "::error::RaceSim.kt does not run stunt.pre."; exit 1; }
+          grep -q 'stunt.post(' "$K/gameplay/RaceSim.kt"       || { echo "::error::RaceSim.kt does not run stunt.post."; exit 1; }
+          grep -q 'stuntButton' "$K/controls/GameView.kt"      || { echo "::error::GameView.kt has no STUNT button."; exit 1; }
+          grep -q 'stuntRadial' "$K/controls/GameView.kt"      || { echo "::error::GameView.kt has no radial stunt selector."; exit 1; }
+          grep -q 'airPad' "$K/controls/GameView.kt"           || { echo "::error::GameView.kt has no air pad."; exit 1; }
+          if grep -q 'private fun wheelieButton' "$K/controls/GameView.kt"; then echo "::error::GameView.kt still has the old separate Wheelie button."; exit 1; fi
+          grep -q 'drawRamps' "$K/graphics/SceneDrawer.kt"     || { echo "::error::SceneDrawer.kt does not draw the stunt ramps."; exit 1; }
+          grep -q 'stuntAttitude' "$K/graphics/SceneDrawer.kt" || { echo "::error::SceneDrawer.kt does not draw the stunt attitude."; exit 1; }
+          grep -q 'Rebase.zOrg' "$K/graphics/GlKit.kt"         || { echo "::error::GlKit.kt does not apply the floating origin."; exit 1; }
+          grep -q 'Rebase.zOrg' "$K/graphics/GlbGpu.kt"        || { echo "::error::GlbGpu.kt does not apply the floating origin."; exit 1; }
+          grep -q 'stuntRamps' "$K/persistence/SaveData.kt"    || { echo "::error::SaveData.kt has no STUNT RAMPS setting."; exit 1; }
+          grep -q 'rampLaunch' "$K/audio/Sound.kt"             || { echo "::error::Sound.kt has no ramp launch sound."; exit 1; }
+          grep -q 'configureRamps' "$K/GameActivity.kt"        || { echo "::error::GameActivity.kt does not switch the ramps on / off."; exit 1; }
+          grep -q 'val unlimited' "$K/multiplayer/MpModels.kt" || { echo "::error::MpModels.kt has no unlimited-ride room setting."; exit 1; }
+          grep -q '"caps"' "$K/multiplayer/Mp.kt"              || { echo "::error::Mp.kt does not announce its capabilities."; exit 1; }
+          grep -q 'serverStunt' "$K/multiplayer/Mp.kt"         || { echo "::error::Mp.kt does not send the stunt state."; exit 1; }
+          grep -q 'renderNow' "$K/multiplayer/RemoteRacers.kt" || { echo "::error::RemoteRacers.kt has no smoothed render clock."; exit 1; }
+          if grep -E 'GfxPreset\("(LOW|MEDIUM)", *[0-9.]+f?, *[12],' "$K/data/Config.kt" > /dev/null; then echo "::error::Config.kt: LOW / MEDIUM graphics remove scenery (scenery < 3)."; exit 1; fi
           echo "Project folder: $PROJECT_DIR"
           if [ -n "$NEXUS_BACKEND_URL" ]; then
             case "$NEXUS_BACKEND_URL" in
               wss://*) echo "Multiplayer server (repository variable): $NEXUS_BACKEND_URL" ;;
-              *) echo "::error::The repository variable NEXUS_BACKEND_URL must start with wss:// (the release app blocks unencrypted ws://). Example: wss://my-backend.onrender.com/ws. Current value: $NEXUS_BACKEND_URL"; exit 1 ;;
+              *) echo "::error::The repository variable NEXUS_BACKEND_URL must start with wss:// . Current value: $NEXUS_BACKEND_URL"; exit 1 ;;
             esac
           else
             echo "NEXUS_BACKEND_URL variable not set: the address from gradle.properties / MpConfig.kt is used."
             grep -n '^NEXUS_BACKEND_URL' "$PROJECT_DIR/gradle.properties" || true
           fi
 
-      # ---------------------------------------------------------------- 5. assets are checked from the project's OWN config files
-
-      - name: Verify vehicles, NPC registry, audio and BOTH maps
+      # ------------------------------------------------------------ 5. assets are checked from the project's OWN config files
+      - name: Verify vehicles, NPC registry, audio, ramps and BOTH maps
         shell: bash
         run: |
           set -euo pipefail
@@ -285,34 +310,35 @@ jobs:
               if not os.path.isfile(f): err("Missing speedometer icon ui/bike_%s.png" % b["id"])
               elif open(f, "rb").read(4) != b"\x89PNG": err("ui/bike_%s.png is not a PNG" % b["id"])
               if not (b.get("custom") or {}).get("paint"): err("bike %s has no custom.paint materials in config/bikes.json" % b["id"])
-          # the new Kawasaki Ninja H2R is the dearest bike and is the LAST entry; the old "H2R" model is now the ZX-10R
-          if ids[-1] != "kawasaki_h2r": err("kawasaki_h2r (Kawasaki Ninja H2R) must be the LAST bike in config/bikes.json (found %s)" % ids[-1])
-          if "kawasaki_zx10r" not in ids: err("bike kawasaki_zx10r (the former H2R model) is missing in config/bikes.json")
+          if ids[-1] != "kawasaki_h2r": err("kawasaki_h2r must be the LAST bike in config/bikes.json (found %s)" % ids[-1])
+          if "kawasaki_zx10r" not in ids: err("bike kawasaki_zx10r is missing in config/bikes.json")
           h2 = [b for b in bikes if b["id"] == "kawasaki_h2r"]
           if h2:
-              if h2[0].get("topSpeedKmh") != 420 or (h2[0].get("phys") or {}).get("speedCapKmh") != 420: err("kawasaki_h2r (Kawasaki Ninja H2R) top speed must be 420 km/h")
+              if h2[0].get("topSpeedKmh") != 420 or (h2[0].get("phys") or {}).get("speedCapKmh") != 420: err("kawasaki_h2r top speed must be 420 km/h")
               if abs(((h2[0].get("phys") or {}).get("nitroTopMul") or 0) * 420 - 450) > 1: err("kawasaki_h2r nitro top speed must be 450 km/h")
-              if not h2[0].get("fx"): err("kawasaki_h2r has no fx block (flames / brake light / number plate)")
+              if not h2[0].get("fx"): err("kawasaki_h2r has no fx block")
           for r in json.load(open(a + "/config/riders.json")): glb(r["glb"], "rider")
           npc = json.load(open(a + "/config/npc_vehicles.json"))
           if len(npc) < 10: err("config/npc_vehicles.json lists only %d NPC vehicles" % len(npc))
           for n in npc: glb(n["glb"], "npc " + n["id"])
-          if not os.path.isfile(os.path.join(a, "fonts", "hud_slab.ttf")): err("Missing fonts/hud_slab.ttf (HUD font)")
-          # number font of the v1.7 design pass (used for wallet / level / result numbers; the game falls back to the HUD font if it is missing, so it is checked here)
+          # the two STUNT RAMP models (v1.7)
+          for rp in ["map/ramps/ramp_wood.glb", "map/ramps/ramp_industrial.glb"]:
+              glb(rp, "stunt ramp")
+              fr = os.path.join(a, rp)
+              if os.path.isfile(fr) and os.path.getsize(fr) < 200000: err("%s is too small (broken upload?)" % rp)
+          if not os.path.isfile(os.path.join(a, "fonts", "hud_slab.ttf")): err("Missing fonts/hud_slab.ttf")
           tk = os.path.join(a, "fonts", "Tektur-Medium.ttf")
-          if not os.path.isfile(tk): err("Missing fonts/Tektur-Medium.ttf (number font of the new design)")
+          if not os.path.isfile(tk): err("Missing fonts/Tektur-Medium.ttf")
           else:
               hd = open(tk, "rb").read(4)
               if hd not in (b"\x00\x01\x00\x00", b"true", b"OTTO"): err("fonts/Tektur-Medium.ttf is not a valid font file")
-              if os.path.getsize(tk) < 20000: err("fonts/Tektur-Medium.ttf is too small (broken file?)")
-          if not os.path.isfile(os.path.join(a, "fonts", "Tektur-OFL.txt")): err("Missing fonts/Tektur-OFL.txt (the font licence must ship with the font)")
+              if os.path.getsize(tk) < 20000: err("fonts/Tektur-Medium.ttf is too small")
+          if not os.path.isfile(os.path.join(a, "fonts", "Tektur-OFL.txt")): err("Missing fonts/Tektur-OFL.txt")
           for s in ["crash.mp3", "nitro_loop.mp3", "bike_horn.mp3", "npc_car_horn.mp3"]:
               f = os.path.join(a, "audio", s)
               if not os.path.isfile(f): err("Missing audio/" + s); continue
               h = open(f, "rb").read(3)
               if not (h == b"ID3" or (h[0] == 0xFF and (h[1] & 0xE0) == 0xE0)): err("audio/%s is not an MP3" % s)
-
-          # built-in songs: audio + packed-alpha lyric video (960x1080: colour on top, matte below) + round picture
           for slug in ["maan_meera", "paro", "ride_it", "gata_only", "love_niwati"]:
               m = os.path.join(a, "music")
               sa, sv, sp = [os.path.join(m, slug + e) for e in (".m4a", ".lyr.mp4", ".png")]
@@ -322,12 +348,12 @@ jobs:
               if os.path.isfile(sv):
                   hd = open(sv, "rb").read(12)[4:8]
                   if hd != b"ftyp": err("music/%s.lyr.mp4 is not an MP4 video" % slug)
-                  if os.path.getsize(sv) < 500000: err("music/%s.lyr.mp4 is too small (broken upload?)" % slug)
+                  if os.path.getsize(sv) < 500000: err("music/%s.lyr.mp4 is too small" % slug)
               if os.path.isfile(sp) and open(sp, "rb").read(4) != b"\x89PNG": err("music/%s.png is not a PNG" % slug)
           print("music: 5 built-in songs + lyric videos + round pictures checked")
           for e in ["h2r_loop", "h2r_release", "h2r_idle", "h2r_shift"]:
               f = os.path.join(a, "audio", "engine", e + ".wav")
-              if not os.path.isfile(f): err("Missing audio/engine/%s.wav (real Ninja H2R engine recording)" % e)
+              if not os.path.isfile(f): err("Missing audio/engine/%s.wav" % e)
               elif open(f, "rb").read(4) != b"RIFF": err("audio/engine/%s.wav is not a WAV file" % e)
 
           SUPPORTED_REQ = {"KHR_materials_emissive_strength", "KHR_mesh_quantization"}
@@ -342,13 +368,13 @@ jobs:
               if len(cm["models"]) < min_models: err("%s lists only %d models (expected at least %d)" % (cfgname, len(cm["models"]), min_models))
               for mm in cm["models"]:
                   p = mm["file"]; files.append(p)
-                  if not p.startswith(want_dir): err("%s: %s is outside %s (maps must stay separate)" % (cfgname, p, want_dir))
+                  if not p.startswith(want_dir): err("%s: %s is outside %s" % (cfgname, p, want_dir))
                   f = os.path.join(a, p)
-                  if not os.path.isfile(f): err("Missing map model %s (is the map ZIP complete?)" % p); continue
+                  if not os.path.isfile(f): err("Missing map model %s" % p); continue
                   raw = open(f, "rb").read(); tot += len(raw)
                   if raw[:4] != b"glTF": err("%s is not a valid GLB" % p); continue
                   ver, total = struct.unpack("<II", raw[4:12])
-                  if ver != 2 or total != len(raw): err("%s: GLB header / length mismatch (damaged download?)" % p); continue
+                  if ver != 2 or total != len(raw): err("%s: GLB header / length mismatch" % p); continue
                   jl, jt = struct.unpack("<I4s", raw[12:20])
                   try: j = json.loads(raw[20:20 + jl])
                   except Exception as e: err("%s: JSON chunk unreadable: %s" % (p, e)); continue
@@ -373,6 +399,7 @@ jobs:
                        | {"ui/bike_%s.png" % b["id"] for b in bikes}
                        | {"fonts/hud_slab.ttf", "fonts/Tektur-Medium.ttf", "fonts/Tektur-OFL.txt", "audio/crash.mp3", "audio/nitro_loop.mp3", "audio/bike_horn.mp3", "audio/npc_car_horn.mp3",
                           "config/bikes.json", "config/npc_vehicles.json", "config/countryside_map.json", "config/nightcity_map.json",
+                          "map/ramps/ramp_wood.glb", "map/ramps/ramp_industrial.glb",
                           cm6["map"]["preview"], cm7["map"]["preview"]}
                        | {"audio/engine/%s.wav" % e for e in ["h2r_loop", "h2r_release", "h2r_idle", "h2r_shift"]}
                        | {"music/%s%s" % (sl, e) for sl in ["maan_meera", "paro", "ride_it", "gata_only", "love_niwati"] for e in (".m4a", ".lyr.mp4", ".png")}
@@ -380,11 +407,11 @@ jobs:
           env.write("APK_ASSETS=%s\n" % ",".join(lst))
           env.write("COUNTRY_MODELS=%d\n" % len(f6))
           env.write("NIGHT_MODELS=%d\n" % len(f7))
+          env.close()
           sys.exit(1 if errors else 0)
           PY
 
-      # ---------------------------------------------------------------- 6. tool versions follow the project's real Android Gradle Plugin
-
+      # ------------------------------------------------------------ 6. tool versions follow the project's real Android Gradle Plugin
       - name: Read project build requirements
         shell: bash
         run: |
@@ -448,8 +475,7 @@ jobs:
         with:
           gradle-version: ${{ env.GRADLE_VERSION }}
 
-      # ---------------------------------------------------------------- 6b. decode + check the permanent key (never printed, deleted at the end)
-
+      # ------------------------------------------------------------ 6b. decode + check the permanent key
       - name: Prepare the permanent signing key
         shell: bash
         env:
@@ -461,17 +487,14 @@ jobs:
           set -euo pipefail
           KS="$RUNNER_TEMP/nexus-release.keystore"
           umask 077
-          # tolerate line breaks / spaces in the pasted Base64 text
           printf '%s' "$S_KS" | tr -d ' \r\n\t' | base64 -d > "$KS" 2>/dev/null || { rm -f "$KS"; echo "::error::NEXUS_KEYSTORE_BASE64 is not valid Base64. Encode the keystore file again (SIGNING_SETUP_GUIDE.md) and paste it as ONE line."; exit 1; }
           [ -s "$KS" ] || { rm -f "$KS"; echo "::error::NEXUS_KEYSTORE_BASE64 decoded to an empty file."; exit 1; }
           export KS_PASS="$S_KSP" KEY_PASS="$S_KEYP"
-          # 1) keystore password + alias exist
           if ! keytool -list -v -keystore "$KS" -storepass:env KS_PASS -alias "$S_ALIAS" > "$RUNNER_TEMP/ks-info.txt" 2> "$RUNNER_TEMP/ks-err.txt"; then
             rm -f "$KS"
             echo "::error::The keystore could not be opened with NEXUS_KEYSTORE_PASSWORD, or the alias NEXUS_KEY_ALIAS does not exist in it. Check both secrets (exact spelling, upper/lower case)."
             exit 1
           fi
-          # 2) key password is right (copy the key into a throw-away keystore; this fails if NEXUS_KEY_PASSWORD is wrong)
           TMP="$RUNNER_TEMP/keycheck.p12"; rm -f "$TMP"
           export TMP_PASS="check-only-not-a-secret"
           if ! keytool -importkeystore -srckeystore "$KS" -srcstorepass:env KS_PASS -srcalias "$S_ALIAS" -srckeypass:env KEY_PASS \
@@ -491,18 +514,17 @@ jobs:
             HAVE=$(echo "$FP" | tr -d ':' | tr 'a-f' 'A-F')
             if [ "$WANT" != "$HAVE" ]; then
               rm -f "$KS"
-              echo "::error::This keystore is NOT the key you registered (variable NEXUS_EXPECTED_CERT_SHA256). A different key would make Android refuse the update. Build stopped."
+              echo "::error::This keystore is NOT the key you registered (variable NEXUS_EXPECTED_CERT_SHA256). Build stopped."
               exit 1
             fi
             echo "Fingerprint matches the registered key (NEXUS_EXPECTED_CERT_SHA256)."
           else
-            echo "::warning::Variable NEXUS_EXPECTED_CERT_SHA256 is not set yet. Save the fingerprint above as that variable so a wrong key can never be used by mistake."
+            echo "::warning::Variable NEXUS_EXPECTED_CERT_SHA256 is not set yet. Save the fingerprint above as that variable."
           fi
           echo "KEY_FINGERPRINT=$FP" >> "$GITHUB_ENV"
           echo "NEXUS_KEYSTORE_FILE=$KS" >> "$GITHUB_ENV"
 
-      # ---------------------------------------------------------------- 6c. unit tests (informational: a failing test is shown but does not block the APK)
-
+      # ------------------------------------------------------------ 6c. unit tests (informational)
       - name: Run unit tests
         id: unit_tests
         continue-on-error: true
@@ -512,8 +534,7 @@ jobs:
           set -o pipefail
           gradle :app:testDebugUnitTest --no-daemon --console=plain 2>&1 | tee "$GITHUB_WORKSPACE/unit-tests.log"
 
-      # ---------------------------------------------------------------- 6d. the release build, signed with the permanent key
-
+      # ------------------------------------------------------------ 6d. the release build, signed with the permanent key
       - name: Build signed release APK
         working-directory: ${{ env.PROJECT_DIR }}
         shell: bash
@@ -528,8 +549,7 @@ jobs:
           echo "Building :app:assembleRelease  versionCode=${NEXUS_VERSION_CODE}  versionName=${NEXUS_VERSION_NAME}"
           gradle :app:assembleRelease "${ARGS[@]}" --stacktrace --no-daemon --console=plain 2>&1 | tee "$GITHUB_WORKSPACE/build.log"
 
-      # ---------------------------------------------------------------- 7. find the real APK, verify signature, package, version, debuggable, assets
-
+      # ------------------------------------------------------------ 7. find the real APK, verify
       - name: Find the release APK (path read from Gradle's own output file)
         shell: bash
         run: |
@@ -558,7 +578,6 @@ jobs:
           print("APK file    : " + apk + "  (" + str(os.path.getsize(apk)) + " bytes)")
           open(os.environ["GITHUB_ENV"], "a").write("APK_PATH=%s\nGRADLE_APP_ID=%s\n" % (apk, m.get("applicationId")))
           PY
-          # NOTE: values written to $GITHUB_ENV are visible only in the NEXT steps, so nothing reads APK_PATH here.
 
       - name: Verify signature, package name, version and debuggable flag
         shell: bash
@@ -569,7 +588,7 @@ jobs:
           BT="$ANDROID_HOME/build-tools/$BUILD_TOOLS"
           [ -x "$BT/apksigner" ] && [ -x "$BT/aapt2" ] || { echo "::error::apksigner / aapt2 not found in $BT"; exit 1; }
           APK="$APK_PATH"
-          WANT_ID=$(grep -oE 'applicationId *= *"[^"]+"' "$PROJECT_DIR/app/build.gradle.kts" | head -n 1 | sed 's/.*"\(.*\)"/\1/')
+          WANT_ID=$(grep -oE 'applicationId *= *"[^"]+"' "$PROJECT_DIR/app/build.gradle.kts" | head -n 1 | sed -E 's/.*"([^"]+)".*/\1/')
           [ -n "$WANT_ID" ] || { echo "::error::applicationId not found in app/build.gradle.kts"; exit 1; }
 
           echo "== apksigner verify =="
@@ -620,13 +639,12 @@ jobs:
             if ! grep -qx "assets/$A" apk-files.txt; then echo "::error::The APK does not contain assets/$A."; MISS=1; fi
           done
           [ "$MISS" = 0 ] || exit 1
-          # all dex files into one file first (grep -q on a pipe can close it early and fail with pipefail)
           unzip -p "$APK" 'classes*.dex' > dex-all.bin
-          for C in NightCityCard CountrysideCard LyricsLayer GradeCode StreakDrawable GradeKit AmbientView ShineView; do
+          for C in NightCityCard CountrysideCard LyricsLayer GradeCode StreakDrawable GradeKit AmbientView ShineView StuntState RampField StuntCode RampType; do
             grep -aq "$C" dex-all.bin || { echo "::error::The APK code does not contain $C."; exit 1; }
           done
           rm -f dex-all.bin
-          echo "APK contains all ${#LIST[@]} checked assets (bikes, riders, NPC vehicles, sounds, ${COUNTRY_MODELS} NEXUS COUNTRYSIDE models, ${NIGHT_MODELS} NEXUS NIGHT CITY models), both map cards, the 5 built-in songs with lyric videos, the lyrics layer, colour grading and the new animation layer (ambient light, PLAY shine, number font)."
+          echo "APK contains all ${#LIST[@]} checked assets (bikes, riders, NPC vehicles, sounds, ${COUNTRY_MODELS} COUNTRYSIDE models, ${NIGHT_MODELS} NIGHT CITY models, the 2 stunt ramps), both map cards, 5 songs with lyric videos, lyrics layer, colour grading, animation layer and the stunt / ramp system."
           FINAL="$GITHUB_WORKSPACE/NEXUS_RACING-${NEXUS_VERSION_NAME}-code${NEXUS_VERSION_CODE}-release.apk"
           cp "$APK" "$FINAL"
           echo "FINAL_APK=$FINAL" >> "$GITHUB_ENV"
