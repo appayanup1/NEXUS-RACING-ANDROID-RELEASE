@@ -18,10 +18,16 @@ name: 'Build NEXUS RACING signed release APK (one ZIP in a GitHub Release)'
 # STUNT / RAMP checks (v1.7 game update): gameplay/Stunt.kt (8 stunts + air control), gameplay/Ramps.kt, graphics/Rebase.kt (floating origin),
 # the STUNT button + radial selector + air pad in GameView, the two ramp GLBs (assets/map/ramps/), the stunt-ramps setting, the multiplayer
 # stunt state / unlimited ride. A ZIP that lacks any of them FAILS the run instead of building a game without the new features.
+# v1.8 checks (open-world update): gameplay/StartGrid.kt (multiplayer start grid), manual gearbox (BikeDynamics.shiftGear), device-independent UI scale
+# (ui/UiScale.kt), spoken countdown (audio/CountdownVoice.kt + the TTS query in the manifest), and the Open World (world/WorldMap.kt road network,
+# gameplay/WorldDriver.kt, ui/WorldMapView.kt, Track.spliceWorld). A ZIP that lacks any of them FAILS the run.
+#
+# RAMP checks (v1.8.1): the two ramp GLBs are measured in game space (small flat kickers that RISE toward -z, never a standing wall or a lying slab), the ramp
+# size / placement code (RampType.SCALE, RampField patterns), the donut camera (yawFollow) and the redrawn stunt icons.
 #
 # The Kotlin package folder is found automatically, so renaming the package id never breaks this workflow.
 # Multiplayer server address (optional): repository variable NEXUS_BACKEND_URL (wss://...). The backend is not touched by this workflow.
-# (The v1.7 game needs the v1.7 backend: upload NEXUS_RACING-Backend-v1.7-STUNT.zip with the backend workflow first.)
+# (The v1.8 game needs the v1.8 backend: upload NEXUS_RACING-Backend-v1.8-WORLD.zip with the backend workflow first.)
 # Another ZIP name (optional): repository variable BUNDLE_ZIP_NAME.
 #
 # SIGNED RELEASE BUILD: the APK is a RELEASE build signed with ONE permanent key, so every new APK installs over the old one.
@@ -271,7 +277,40 @@ jobs:
           grep -q '"caps"' "$K/multiplayer/Mp.kt"              || { echo "::error::Mp.kt does not announce its capabilities."; exit 1; }
           grep -q 'serverStunt' "$K/multiplayer/Mp.kt"         || { echo "::error::Mp.kt does not send the stunt state."; exit 1; }
           grep -q 'renderNow' "$K/multiplayer/RemoteRacers.kt" || { echo "::error::RemoteRacers.kt has no smoothed render clock."; exit 1; }
+          # ---- v1.8.1: small ramps in every mode, donut camera locked to the bike, redrawn stunt icons
+          grep -q 'const val SCALE' "$K/gameplay/Ramps.kt"           || { echo "::error::Ramps.kt has no RampType.SCALE (small ramps)."; exit 1; }
+          grep -q 'P_PAIR_EDGES' "$K/gameplay/Ramps.kt"              || { echo "::error::Ramps.kt has no random ramp patterns (edges / middle / pairs)."; exit 1; }
+          grep -q 'RaceSim.roadHalf' "$K/gameplay/Ramps.kt"          || { echo "::error::Ramps.kt does not fit the ramps to the road width (open world / gully)."; exit 1; }
+          grep -q 'RampType.SCALE' "$K/graphics/SceneDrawer.kt"      || { echo "::error::SceneDrawer.kt does not draw the ramps at RampType.SCALE."; exit 1; }
+          grep -q 'yawFollow' "$K/gameplay/Stunt.kt"                 || { echo "::error::Stunt.kt has no yawFollow (donut camera)."; exit 1; }
+          grep -q 'stuntYawFollow' "$K/camera/CameraRig.kt"          || { echo "::error::CameraRig.kt has no stuntYawFollow (donut camera)."; exit 1; }
+          grep -q 'stunt.yawFollow' "$K/graphics/RaceRenderer.kt"    || { echo "::error::RaceRenderer.kt does not pass stunt.yawFollow to the camera."; exit 1; }
+          grep -q 'val bodyCol' "$K/controls/GameView.kt"            || { echo "::error::GameView.kt has the old stick-figure stunt icon (no filled bike body)."; exit 1; }
           if grep -E 'GfxPreset\("(LOW|MEDIUM)", *[0-9.]+f?, *[12],' "$K/data/Config.kt" > /dev/null; then echo "::error::Config.kt: LOW / MEDIUM graphics remove scenery (scenery < 3)."; exit 1; fi
+          # ---- v1.8 (open-world update): start grid, jitter fix, manual gearbox, foot-down, device-independent UI, spoken countdown, Open World
+          [ -f "$K/gameplay/StartGrid.kt" ]    || { echo "::error::gameplay/StartGrid.kt is missing (multiplayer start grid)."; exit 1; }
+          grep -q 'object StartGrid' "$K/gameplay/StartGrid.kt"       || { echo "::error::StartGrid.kt has no 'object StartGrid'."; exit 1; }
+          grep -q 'StartGrid.spots' "$K/GameActivity.kt"              || { echo "::error::GameActivity.kt does not place the rider on his grid spot."; exit 1; }
+          grep -q 'MAX_BASE_DROP_MS' "$K/multiplayer/RemoteRacers.kt" || { echo "::error::RemoteRacers.kt lacks the remote-timeline fix (MAX_BASE_DROP_MS)."; exit 1; }
+          grep -q 'fun shiftGear' "$K/gameplay/BikeDynamics.kt"       || { echo "::error::BikeDynamics.kt has no manual gearbox (shiftGear)."; exit 1; }
+          grep -q 'manualGear' "$K/persistence/SaveData.kt"           || { echo "::error::SaveData.kt has no TRANSMISSION setting."; exit 1; }
+          grep -q 'gearButtons' "$K/controls/GameView.kt"             || { echo "::error::GameView.kt has no GEAR + / - buttons."; exit 1; }
+          grep -q 'footDown' "$K/gameplay/RiderMotion.kt"             || { echo "::error::RiderMotion.kt has no foot-down idle."; exit 1; }
+          [ -f "$K/ui/UiScale.kt" ]            || { echo "::error::ui/UiScale.kt is missing (device-independent UI)."; exit 1; }
+          grep -q 'UiScale.wrap' "$K/MainActivity.kt"                 || { echo "::error::MainActivity.kt does not apply UiScale."; exit 1; }
+          grep -q 'UiScale.wrap' "$K/GameActivity.kt"                 || { echo "::error::GameActivity.kt does not apply UiScale."; exit 1; }
+          [ -f "$K/audio/CountdownVoice.kt" ]  || { echo "::error::audio/CountdownVoice.kt is missing."; exit 1; }
+          grep -q 'TTS_SERVICE' "$PROJECT_DIR/app/src/main/AndroidManifest.xml" || { echo "::error::AndroidManifest.xml has no TTS_SERVICE query (spoken countdown)."; exit 1; }
+          grep -q 'cineShot' "$K/graphics/RaceRenderer.kt"            || { echo "::error::RaceRenderer.kt has no countdown camera."; exit 1; }
+          [ -f "$K/world/WorldMap.kt" ]        || { echo "::error::world/WorldMap.kt is missing (open-world road network)."; exit 1; }
+          [ -f "$K/gameplay/WorldDriver.kt" ]  || { echo "::error::gameplay/WorldDriver.kt is missing."; exit 1; }
+          [ -f "$K/ui/WorldMapView.kt" ]       || { echo "::error::ui/WorldMapView.kt is missing."; exit 1; }
+          [ -f "$K/ui/WorldMapScreen.kt" ]     || { echo "::error::ui/WorldMapScreen.kt is missing."; exit 1; }
+          grep -q 'fun spliceWorld' "$K/gameplay/Track.kt"            || { echo "::error::Track.kt has no spliceWorld (Open World road)."; exit 1; }
+          grep -q 'attachWorld' "$K/GameActivity.kt"                  || { echo "::error::GameActivity.kt does not start the Open World."; exit 1; }
+          grep -q 'gullyMode' "$K/persistence/SaveData.kt"            || { echo "::error::SaveData.kt has no GULLY MODE setting."; exit 1; }
+          grep -q 'worldHud' "$K/controls/GameView.kt"                || { echo "::error::GameView.kt has no Open World minimap."; exit 1; }
+          grep -q 'RaceSim.roadHalf' "$K/graphics/SceneDrawer.kt"     || { echo "::error::SceneDrawer.kt does not use the variable road width."; exit 1; }
           echo "Project folder: $PROJECT_DIR"
           if [ -n "$NEXUS_BACKEND_URL" ]; then
             case "$NEXUS_BACKEND_URL" in
@@ -300,6 +339,8 @@ jobs:
               with open(f, "rb") as h: raw = h.read()
               if raw[:4] != b"glTF": err("%s is not a valid GLB" % p); return
               print("ok  %-30s %7.2f MB  (%s)" % (p, os.path.getsize(f) / 1e6, what))
+          def raw_ok(f):
+              with open(f, "rb") as h: return h.read(4) == b"glTF"
           bikes = json.load(open(a + "/config/bikes.json"))
           for b in bikes:
               g = (b.get("model") or {}).get("glb")
@@ -322,10 +363,49 @@ jobs:
           if len(npc) < 10: err("config/npc_vehicles.json lists only %d NPC vehicles" % len(npc))
           for n in npc: glb(n["glb"], "npc " + n["id"])
           # the two STUNT RAMP models (v1.7)
+          def ramp_geometry(rp):
+              """Measures a ramp GLB in GAME space (all node matrices applied): returns (min, max, lip_z_fraction)."""
+              def mmul(A, B): return [[sum(A[i][k] * B[k][j] for k in range(4)) for j in range(4)] for i in range(4)]
+              def node_m(n):
+                  if "matrix" in n:
+                      v = n["matrix"]; return [[v[c * 4 + r_] for c in range(4)] for r_ in range(4)]     # column-major -> rows
+                  t = n.get("translation", [0, 0, 0]); q = n.get("rotation", [0, 0, 0, 1]); sc = n.get("scale", [1, 1, 1])
+                  x, y, z, w = q
+                  R = [[1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
+                       [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
+                       [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)]]
+                  return [[R[0][0] * sc[0], R[0][1] * sc[1], R[0][2] * sc[2], t[0]], [R[1][0] * sc[0], R[1][1] * sc[1], R[1][2] * sc[2], t[1]],
+                          [R[2][0] * sc[0], R[2][1] * sc[1], R[2][2] * sc[2], t[2]], [0, 0, 0, 1]]
+              raw = open(os.path.join(a, rp), "rb").read()
+              jl = struct.unpack("<I", raw[12:16])[0]; j = json.loads(raw[20:20 + jl]); off = 20 + jl
+              binb = raw[off + 8: off + 8 + struct.unpack("<I", raw[off:off + 4])[0]]
+              pts = []
+              def walk(i, P):
+                  n = j["nodes"][i]; W = mmul(P, node_m(n))
+                  if "mesh" in n:
+                      for pr in j["meshes"][n["mesh"]]["primitives"]:
+                          ac = j["accessors"][pr["attributes"]["POSITION"]]; bv = j["bufferViews"][ac["bufferView"]]
+                          st = bv.get("byteStride", 12); o = bv.get("byteOffset", 0) + ac.get("byteOffset", 0)
+                          for k in range(ac["count"]):
+                              px, py, pz = struct.unpack_from("<3f", binb, o + k * st)
+                              pts.append((W[0][0] * px + W[0][1] * py + W[0][2] * pz + W[0][3], W[1][0] * px + W[1][1] * py + W[1][2] * pz + W[1][3], W[2][0] * px + W[2][1] * py + W[2][2] * pz + W[2][3]))
+                  for c in n.get("children", []): walk(c, W)
+              I = [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]]
+              for r_ in j["scenes"][j.get("scene", 0)]["nodes"]: walk(r_, I)
+              lo = [min(p_[i] for p_ in pts) for i in range(3)]; hi = [max(p_[i] for p_ in pts) for i in range(3)]
+              top = [p_[2] for p_ in pts if p_[1] > lo[1] + 0.8 * (hi[1] - lo[1])]
+              frac = ((sum(top) / len(top)) - lo[2]) / max(1e-6, hi[2] - lo[2]) if top else 0.5
+              return lo, hi, frac
           for rp in ["map/ramps/ramp_wood.glb", "map/ramps/ramp_industrial.glb"]:
               glb(rp, "stunt ramp")
               fr = os.path.join(a, rp)
               if os.path.isfile(fr) and os.path.getsize(fr) < 200000: err("%s is too small (broken upload?)" % rp)
+              if os.path.isfile(fr) and raw_ok(fr):
+                  lo, hi, frac = ramp_geometry(rp)
+                  wd, ht, ln = hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]
+                  print("ramp %-28s width %.2f  height %.2f  length %.2f m  (model size, before the in-game scale)" % (rp, wd, ht, ln))
+                  if not (3.0 <= wd <= 8.0 and 1.5 <= ht <= 4.5 and 7.0 <= ln <= 14.0): err("%s has the wrong shape in game space (%.1f wide, %.1f high, %.1f long): it is standing up or lying on its side. Rebuild it with tools/build_ramp_assets.py (every node below the root must be an identity)." % (rp, wd, ht, ln))
+                  if frac > 0.35: err("%s rises toward +z: it would face the wrong way (the high end must be at -z, the riding direction)." % rp)
           if not os.path.isfile(os.path.join(a, "fonts", "hud_slab.ttf")): err("Missing fonts/hud_slab.ttf")
           tk = os.path.join(a, "fonts", "Tektur-Medium.ttf")
           if not os.path.isfile(tk): err("Missing fonts/Tektur-Medium.ttf")
@@ -640,11 +720,11 @@ jobs:
           done
           [ "$MISS" = 0 ] || exit 1
           unzip -p "$APK" 'classes*.dex' > dex-all.bin
-          for C in NightCityCard CountrysideCard LyricsLayer GradeCode StreakDrawable GradeKit AmbientView ShineView StuntState RampField StuntCode RampType; do
+          for C in NightCityCard CountrysideCard LyricsLayer GradeCode StreakDrawable GradeKit AmbientView ShineView StuntState RampField StuntCode RampType StartGrid UiScale CountdownVoice WorldMap WorldDriver RoadPaths WorldMapView; do
             grep -aq "$C" dex-all.bin || { echo "::error::The APK code does not contain $C."; exit 1; }
           done
           rm -f dex-all.bin
-          echo "APK contains all ${#LIST[@]} checked assets (bikes, riders, NPC vehicles, sounds, ${COUNTRY_MODELS} COUNTRYSIDE models, ${NIGHT_MODELS} NIGHT CITY models, the 2 stunt ramps), both map cards, 5 songs with lyric videos, lyrics layer, colour grading, animation layer and the stunt / ramp system."
+          echo "APK contains all ${#LIST[@]} checked assets (bikes, riders, NPC vehicles, sounds, ${COUNTRY_MODELS} COUNTRYSIDE models, ${NIGHT_MODELS} NIGHT CITY models, the 2 stunt ramps), both map cards, 5 songs with lyric videos, lyrics layer, colour grading, animation layer, the stunt / ramp system and the v1.8 open-world code."
           FINAL="$GITHUB_WORKSPACE/NEXUS_RACING-${NEXUS_VERSION_NAME}-code${NEXUS_VERSION_CODE}-release.apk"
           cp "$APK" "$FINAL"
           echo "FINAL_APK=$FINAL" >> "$GITHUB_ENV"
